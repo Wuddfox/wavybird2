@@ -1,49 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Flappy Visualizer - Scaled</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta charset="UTF-8">
+  <title>Flappy Visualizer - Improved Hybrid</title>
   <style>
-    html, body {
-      margin: 0; padding: 0;
-      width: 100vw; height: 100vh;
-      overflow: hidden;
-      background: #000;
-      font-family: sans-serif;
-      touch-action: none;
-    }
-    canvas {
-      display: block;
-      width: 100vw;
-      height: 100vh;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+    canvas { display: block; margin: 0 auto; }
     #startBtn {
-      position: absolute;
-      top: 20px; left: 50%;
-      transform: translateX(-50%);
-      padding: 10px 20px;
-      font-size: 18px;
-      background: #0f0;
-      border: none;
-      border-radius: 5px;
-      z-index: 10;
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      padding: 10px 20px; font-size: 18px; cursor: pointer;
+      background: #0f0; border: none; border-radius: 5px;
     }
     #score {
-      position: absolute;
-      top: 60px; left: 50%;
-      transform: translateX(-50%);
-      color: white;
-      font-size: 18px;
-      z-index: 10;
+      position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+      color: #fff; font-size: 18px;
     }
+    body::before {
+      content: "";
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: url('bg.jpg') center center / cover no-repeat;
+      z-index: -2;
+    }
+    body { background: url('bg.jpg') center center / cover no-repeat; }
   </style>
 </head>
 <body>
 
 <button id="startBtn">Start Game</button>
 <div id="score">Score: 0 | High Score: 0</div>
-<canvas id="gameCanvas"></canvas>
+<div id="leaderboard" style="position:absolute; top:100px; left:20px; color:white; font-size:14px;"></div>
+<canvas id="gameCanvas"></canvas></canvas>
 <audio id="bgMusic" crossorigin="anonymous"></audio>
 
 <script>
@@ -53,49 +42,38 @@ const startBtn = document.getElementById("startBtn");
 const scoreDisplay = document.getElementById("score");
 const music = document.getElementById("bgMusic");
 
-let audioCtx, analyser, source, dataArray;
-let bird, bars = [], score = 0, highScore = 0, gameRunning = false;
+const birdImg = new Image();
+birdImg.src = "bird.png";
+
+const bgVideo = document.createElement("video");
+bgVideo.loop = true;
+bgVideo.muted = true;
+bgVideo.autoplay = true;
+bgVideo.playsInline = true;
+bgVideo.crossOrigin = "anonymous";
+bgVideo.style.display = "none";
+document.body.appendChild(bgVideo);
+
+const GRAVITY = 0.09, FLAP = -3.0, GAP_HEIGHT = 380;
+let BAR_WIDTH = 60, BAR_SPEED = 1.5;
+
+let bird, analyser, dataArray, score, highScore, gameRunning = false;
 let startTime;
-let flapLocked = false;
 
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
-
-// Dynamic sizes based on canvas
-let FLAP, GRAVITY, GAP_HEIGHT, BAR_WIDTH, BAR_SPEED, BIRD_SIZE;
-
-function recalculateConstants() {
-  BIRD_SIZE = canvas.height * 0.075;
-  FLAP = -canvas.height * 0.005;
-  GRAVITY = canvas.height * 0.00015;
-  GAP_HEIGHT = canvas.height * 0.4;
-  BAR_WIDTH = canvas.width * 0.08;
-  BAR_SPEED = canvas.width * 0.0025;
-}
+let audioCtx, source, bars = [];
 
 class Bird {
   constructor() {
-    this.x = canvas.width * 0.2;
-    this.y = canvas.height * 0.4;
-    this.vel = 0;
-    this.size = BIRD_SIZE;
+    this.x = 80; this.y = canvas.height * 0.4;
+    this.vel = 0; this.width = 48; this.height = 48;
   }
   update() {
     this.vel += GRAVITY;
     this.y += this.vel;
-    if (this.y + this.size > canvas.height || this.y < 0) endGame();
+    if (this.y + this.height > canvas.height || this.y < 0) endGame();
   }
-  draw() {
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(this.x, this.y, this.size, this.size);
-  }
-  flap() {
-    this.vel = FLAP;
-  }
+  draw() { ctx.drawImage(birdImg, this.x, this.y, this.width, this.height); }
+  flap() { this.vel = FLAP; }
 }
 
 async function setupAudio() {
@@ -107,6 +85,7 @@ async function setupAudio() {
   source = audioCtx.createMediaElementSource(music);
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 32;
+  analyser.smoothingTimeConstant = 0.8;
   source.connect(analyser);
   analyser.connect(audioCtx.destination);
   dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -114,24 +93,46 @@ async function setupAudio() {
 
 function generateBars() {
   bars = [];
-  for (let i = 0; i < canvas.width / BAR_WIDTH + 2; i++) {
-    bars.push({ x: i * BAR_WIDTH + canvas.width, freqIndex: i % 16 });
+  const count = Math.ceil(canvas.width / BAR_WIDTH) + 2;
+  for (let i = 0; i < count; i++) {
+    bars.push({ x: i * BAR_WIDTH + canvas.width, freqIndex: i % analyser.frequencyBinCount });
   }
 }
 
 function drawBars() {
   analyser.getByteFrequencyData(dataArray);
-  const centerY = canvas.height / 2;
+  ctx.lineWidth = BAR_WIDTH - 2;
+  ctx.lineCap = "round";
+  const now = performance.now();
+  const centerGap = canvas.height / 2;
 
   for (let bar of bars) {
     bar.x -= BAR_SPEED;
-    const val = dataArray[bar.freqIndex] || 0;
-    const flicker = (val / 255) * (canvas.height * 0.1);
-    const gapY = centerY - GAP_HEIGHT / 2 + Math.sin(performance.now() / 1000 + bar.freqIndex) * 10;
+    const val = dataArray[bar.freqIndex];
+    const intensity = val / 255;
+    const flicker = Math.max(intensity * canvas.height * 0.3, -GAP_HEIGHT / 4);
+    const gapY = centerGap - GAP_HEIGHT / 2 + Math.sin(now / 1000 + bar.freqIndex) * 20;
 
-    ctx.fillStyle = `rgb(${val}, ${255 - val}, 0)`;
-    ctx.fillRect(bar.x, 0, BAR_WIDTH - 2, gapY + flicker);
-    ctx.fillRect(bar.x, gapY + GAP_HEIGHT + flicker, BAR_WIDTH - 2, canvas.height - (gapY + GAP_HEIGHT + flicker));
+    let color;
+    if (intensity < 0.33) {
+      color = `rgb(${Math.floor(255 * intensity)},${Math.floor(100 + 100 * intensity)},0)`;
+    } else if (intensity < 0.66) {
+      color = `rgb(${Math.floor(255 * intensity)},${Math.floor(255 * intensity)},0)`;
+    } else {
+      color = `rgb(${Math.floor(255 * (1 - intensity))},${Math.floor(255 * intensity)},0)`;
+    }
+
+    const cx = bar.x + (BAR_WIDTH - 2) / 2;
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.moveTo(cx, 0);
+    ctx.lineTo(cx, gapY + flicker);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(cx, gapY + GAP_HEIGHT + flicker);
+    ctx.lineTo(cx, canvas.height);
+    ctx.stroke();
 
     bar.gapY = gapY;
     bar.flicker = flicker;
@@ -139,21 +140,19 @@ function drawBars() {
 
   if (bars.length && bars[0].x + BAR_WIDTH < 0) {
     bars.shift();
-    const newX = bars[bars.length - 1].x + BAR_WIDTH;
-    bars.push({ x: newX, freqIndex: Math.floor(Math.random() * 16) });
+    bars.push({
+      x: bars[bars.length - 1].x + BAR_WIDTH,
+      freqIndex: Math.floor(Math.random() * analyser.frequencyBinCount)
+    });
   }
 }
 
 function checkCollision() {
   for (let bar of bars) {
-    const bx = bar.x;
-    const bw = BAR_WIDTH - 2;
+    const bx = bar.x, bw = BAR_WIDTH - 2;
     const gapY = bar.gapY + bar.flicker;
-    if (
-      bird.x < bx + bw &&
-      bird.x + bird.size > bx &&
-      (bird.y < gapY || bird.y + bird.size > gapY + GAP_HEIGHT)
-    ) {
+    if (bird.x < bx + bw && bird.x + bird.width > bx &&
+        (bird.y < gapY || bird.y + bird.height > gapY + GAP_HEIGHT)) {
       endGame();
       break;
     }
@@ -167,31 +166,26 @@ function gameLoop() {
   bird.update();
   bird.draw();
   checkCollision();
+
   const elapsed = (performance.now() - startTime) / 1000;
-  const currentScore = Math.floor(elapsed / 2.5);
-  if (currentScore > score) {
-    score = currentScore;
+  const newScore = Math.floor(elapsed / 2.5);
+  if (newScore > score) {
+    score = newScore;
     if (score > highScore) {
       highScore = score;
-      localStorage.setItem("flappyHigh", score.toString());
+      localStorage.setItem("flappyVisualizerHighScore", highScore);
     }
   }
   scoreDisplay.innerText = `Score: ${score} | High Score: ${highScore}`;
+
   requestAnimationFrame(gameLoop);
 }
 
 function initGame() {
-  resizeCanvas();
-  recalculateConstants();
   bird = new Bird();
   score = 0;
   generateBars();
-  try {
-    const stored = localStorage.getItem("flappyHigh");
-    highScore = stored ? parseInt(stored) : 0;
-  } catch (e) {
-    highScore = 0;
-  }
+  highScore = localStorage.getItem("flappyVisualizerHighScore") || 0;
   scoreDisplay.innerText = `Score: 0 | High Score: ${highScore}`;
   gameRunning = true;
   startTime = performance.now();
@@ -201,32 +195,46 @@ function initGame() {
 function endGame() {
   gameRunning = false;
   music.pause();
+  let sc = JSON.parse(localStorage.getItem("flappyScores") || "[]");
+  sc.push(score);
+  sc.sort((a,b)=>b-a);
+  sc = sc.slice(0,5);
+  localStorage.setItem("flappyScores", JSON.stringify(sc));
+  alert(`Game Over!\nScore: ${score}`);
   startBtn.style.display = "block";
-  alert("Game Over!\nScore: " + score);
+  document.getElementById("leaderboard").innerHTML =
+    `<b>Top Scores:</b><br>${sc.map((s,i)=>`${i+1}. ${s}`).join("<br>")}`;
 }
 
-canvas.addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  if (gameRunning && !flapLocked) {
-    bird.flap();
-    flapLocked = true;
-    setTimeout(() => flapLocked = false, 250);
-  }
-});
+document.addEventListener("keydown", e => { if (e.code === "Space" && gameRunning) bird.flap(); });
+canvas.addEventListener("mousedown", () => { if (gameRunning) bird.flap(); });
+canvas.addEventListener("touchstart", () => { if (gameRunning) bird.flap(); });
 
 startBtn.addEventListener("click", async () => {
   startBtn.style.display = "none";
   try {
-    if (!audioCtx) await setupAudio();
-    else {
+    if (!audioCtx) {
+      await setupAudio();
+    } else {
       music.currentTime = 0;
       await music.play();
     }
-  } catch (err) {
+  } catch(err) {
     alert("Audio playback failed: " + err.message);
   }
   initGame();
 });
 </script>
+
+<script>
+function resizeCanvas() {
+  const canvas = document.getElementById("gameCanvas");
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+</script>
+
 </body>
 </html>
