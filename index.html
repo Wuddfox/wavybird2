@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta charset="UTF-8">
   <title>Flappy Visualizer - Improved Hybrid</title>
   <style>
@@ -17,6 +18,10 @@
       color: #fff; font-size: 18px;
     }
     body::before {
+    pointer-events: none;
+    max-width: 100vw;
+    max-height: 100vh;
+    overflow: hidden;
       content: "";
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -224,5 +229,17 @@ startBtn.addEventListener("click", async () => {
   initGame();
 });
 </script>
+
+<script>
+// Resize canvas to fit window
+function resizeCanvas() {
+  const canvas = document.getElementById("gameCanvas");
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+</script>
+
 </body>
 </html>
