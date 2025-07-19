@@ -33,7 +33,7 @@
 <div id="score">Score: 0 | High Score: 0</div>
 <div id="leaderboard" style="position:absolute; top:100px; left:20px; color:white; font-size:14px;"></div>
 <canvas id="gameCanvas"></canvas></canvas>
-<audio id="bgMusic" crossorigin="anonymous"></audio>
+<audio id="bgMusic" src="music.mp3" crossorigin="anonymous"></audio></audio>
 
 <script>
 const canvas = document.getElementById("gameCanvas");
@@ -58,6 +58,14 @@ const GRAVITY = 0.09, FLAP = -3.0, GAP_HEIGHT = 380;
 let BAR_WIDTH = 60, BAR_SPEED = 1.5;
 
 let bird, analyser, dataArray, score, highScore, gameRunning = false;
+function generateBars() {
+  bars = [];
+  for (let i = 0; i < canvas.width / BAR_WIDTH + 2; i++) {
+    const x = i * BAR_WIDTH + canvas.width;
+    bars.push({ x, freqIndex: i % 32 });
+  }
+}
+
 let startTime;
 
 let audioCtx, source, bars = [];
@@ -76,28 +84,6 @@ class Bird {
   flap() { this.vel = FLAP; }
 }
 
-async function setupAudio() {
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const resp = await fetch("music.mp3");
-  const blob = await resp.blob();
-  music.src = URL.createObjectURL(blob);
-  await music.play();
-  source = audioCtx.createMediaElementSource(music);
-  analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 32;
-  analyser.smoothingTimeConstant = 0.8;
-  source.connect(analyser);
-  analyser.connect(audioCtx.destination);
-  dataArray = new Uint8Array(analyser.frequencyBinCount);
-}
-
-function generateBars() {
-  bars = [];
-  const count = Math.ceil(canvas.width / BAR_WIDTH) + 2;
-  for (let i = 0; i < count; i++) {
-    bars.push({ x: i * BAR_WIDTH + canvas.width, freqIndex: i % analyser.frequencyBinCount });
-  }
-}
 
 function drawBars() {
   analyser.getByteFrequencyData(dataArray);
@@ -107,10 +93,11 @@ function drawBars() {
   const centerGap = canvas.height / 2;
 
   for (let bar of bars) {
+    const freqVal = dataArray[bar.freqIndex];
     bar.x -= BAR_SPEED;
     const val = dataArray[bar.freqIndex];
     const intensity = val / 255;
-    const flicker = Math.max(intensity * canvas.height * 0.3, -GAP_HEIGHT / 4);
+    const flicker = Math.max(Math.min((freqVal / 255) * canvas.height * 0.3, GAP_HEIGHT * 0.4), -GAP_HEIGHT * 0.4);
     const gapY = centerGap - GAP_HEIGHT / 2 + Math.sin(now / 1000 + bar.freqIndex) * 20;
 
     let color;
@@ -149,6 +136,7 @@ function drawBars() {
 
 function checkCollision() {
   for (let bar of bars) {
+    const freqVal = dataArray[bar.freqIndex];
     const bx = bar.x, bw = BAR_WIDTH - 2;
     const gapY = bar.gapY + bar.flicker;
     if (bird.x < bx + bw && bird.x + bird.width > bx &&
@@ -210,31 +198,52 @@ document.addEventListener("keydown", e => { if (e.code === "Space" && gameRunnin
 canvas.addEventListener("mousedown", () => { if (gameRunning) bird.flap(); });
 canvas.addEventListener("touchstart", () => { if (gameRunning) bird.flap(); });
 
+
 startBtn.addEventListener("click", async () => {
-  startBtn.style.display = "none";
-  try {
-    if (!audioCtx) {
-      await setupAudio();
-    } else {
-      music.currentTime = 0;
-      await music.play();
-    }
-  } catch(err) {
-    alert("Audio playback failed: " + err.message);
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    source = audioCtx.createMediaElementSource(music);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 64;
+    analyser.smoothingTimeConstant = 0.8;
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
   }
+
+  try {
+    await audioCtx.resume();
+    music.currentTime = 0;
+    await music.play();
+    console.log("Music is playing:", !music.paused, "CurrentTime:", music.currentTime);
+  } catch (e) {
+    console.warn("Playback error:", e);
+    alert("Could not play music.");
+    return;
+  }
+
+  startBtn.style.display = "none";
   initGame();
 });
+
 </script>
+
 
 <script>
 function resizeCanvas() {
   const canvas = document.getElementById("gameCanvas");
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  if (canvas) {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    console.log("Canvas resized to", canvas.width, canvas.height);
+  }
 }
 window.addEventListener("resize", resizeCanvas);
-resizeCanvas();
+window.addEventListener("load", () => {
+  setTimeout(resizeCanvas, 100);
+});
 </script>
+
 
 </body>
 </html>
